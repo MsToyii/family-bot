@@ -185,3 +185,73 @@ class FeishuHandler:
         except Exception as e:
             logger.error(f"发送消息异常: {e}")
             return None
+
+    # ========== 文档 & 多维表格 ==========
+
+    async def create_doc(self, title: str, folder_token: str = "") -> dict | None:
+        """创建飞书文档，返回 {document_id, url} 或 None"""
+        token = await self._get_tenant_token()
+        if not token:
+            return None
+
+        url = "https://open.feishu.cn/open-apis/docx/v1/documents"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        body: dict[str, str] = {"title": title}
+        if folder_token:
+            body["folder_token"] = folder_token
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(url, json=body, headers=headers)
+                data = resp.json()
+                code = data.get("code", -1)
+                if resp.status_code == 200 and code == 0:
+                    doc = data.get("data", {}).get("document", {})
+                    doc_id = doc.get("document_id", "")
+                    doc_url = doc.get("url", "")
+                    if not doc_url and doc_id:
+                        doc_url = f"https://mstoyii.feishu.cn/docx/{doc_id}"
+                    logger.info(f"文档创建成功: {title} -> {doc_url}")
+                    return {"document_id": doc_id, "url": doc_url}
+                logger.error(f"创建文档失败 [{code}]: {data.get('msg', resp.text)}")
+                return None
+        except Exception as e:
+            logger.error(f"创建文档异常: {e}")
+            return None
+
+    async def create_bitable(self, name: str, folder_token: str = "") -> dict | None:
+        """创建飞书多维表格，返回 {app_token, url} 或 None"""
+        token = await self._get_tenant_token()
+        if not token:
+            return None
+
+        url = "https://open.feishu.cn/open-apis/bitable/v1/apps"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        body: dict[str, str] = {"name": name}
+        if folder_token:
+            body["folder_token"] = folder_token
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(url, json=body, headers=headers)
+                data = resp.json()
+                code = data.get("code", -1)
+                if resp.status_code == 200 and code == 0:
+                    app = data.get("data", {}).get("app", {})
+                    app_token = app.get("app_token", "")
+                    bitable_url = app.get("url", "")
+                    if not bitable_url and app_token:
+                        bitable_url = f"https://mstoyii.feishu.cn/base/{app_token}"
+                    logger.info(f"多维表格创建成功: {name} -> {bitable_url}")
+                    return {"app_token": app_token, "url": bitable_url}
+                logger.error(f"创建多维表格失败 [{code}]: {data.get('msg', resp.text)}")
+                return None
+        except Exception as e:
+            logger.error(f"创建多维表格异常: {e}")
+            return None

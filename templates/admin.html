@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Family Bot 管理后台</title>
+<style>
+:root {
+  --bg-primary: #09090d;
+  --bg-secondary: #13131f;
+  --bg-tertiary: #1c1c2e;
+  --bg-input: #0f0f1a;
+  --border: #2a2a40;
+  --border-light: #35355a;
+  --accent: #c9a84c;
+  --accent-hover: #d4b85c;
+  --accent-dim: rgba(201, 168, 76, 0.12);
+  --text-primary: #e8e6e3;
+  --text-secondary: #9593a0;
+  --text-muted: #5c5a6b;
+  --success: #4caf93;
+  --danger: #c44d4d;
+  --warning: #c49b4c;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  --font: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --transition: 0.2s ease;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+/* Login overlay */
+.login-overlay {
+  position: fixed; inset: 0;
+  background: rgba(9,9,13,0.85);
+  backdrop-filter: blur(12px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.login-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 48px 40px;
+  width: 400px; max-width: 90vw;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+.login-card h2 { font-size: 1.6rem; font-weight: 500; margin-bottom: 8px; }
+.login-card h2 .gold { color: var(--accent); }
+.login-card .subtitle { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 28px; }
+.login-card input {
+  width: 100%; padding: 12px 16px;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text-primary);
+  font-size: 1rem; outline: none; transition: var(--transition);
+  margin-bottom: 16px;
+}
+.login-card input:focus { border-color: var(--accent); }
+.login-card .error-text { color: var(--danger); font-size: 0.85rem; margin-top: 8px; min-height: 20px; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 10px 20px; border-radius: var(--radius); border: none;
+  font-size: 0.9rem; font-weight: 500; cursor: pointer; transition: var(--transition);
+}
+.btn-primary { background: var(--accent); color: #0a0a10; width: 100%; padding: 12px; font-size: 1rem; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); }
+.btn-outline:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+.btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+
+/* App shell */
+#app { display: flex; flex-direction: column; height: 100vh; }
+.app-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 32px; border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary); flex-shrink: 0;
+}
+.app-header h1 { font-size: 1.2rem; font-weight: 500; }
+.app-header h1 .gold { color: var(--accent); }
+
+.tab-nav {
+  display: flex; gap: 4px; padding: 12px 32px;
+  background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+  flex-shrink: 0; overflow-x: auto;
+}
+.tab-btn {
+  padding: 8px 20px; border-radius: 20px; border: 1px solid transparent;
+  background: transparent; color: var(--text-secondary);
+  font-size: 0.9rem; cursor: pointer; transition: var(--transition);
+  white-space: nowrap;
+}
+.tab-btn:hover { color: var(--text-primary); border-color: var(--border); }
+.tab-btn.active { background: var(--accent); color: #0a0a10; border-color: var(--accent); }
+
+.tab-content {
+  flex: 1; overflow-y: auto; padding: 28px 32px;
+}
+
+/* Stat cards */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 28px; }
+.stat-card {
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 20px 24px;
+  border-top: 3px solid var(--accent);
+}
+.stat-card .label { color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-card .value { font-size: 2rem; font-weight: 300; }
+
+/* Chart */
+.chart-section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 28px; }
+.chart-section h3 { font-size: 0.95rem; font-weight: 500; margin-bottom: 20px; color: var(--text-secondary); }
+.chart-bars { display: flex; align-items: flex-end; gap: 12px; height: 160px; }
+.chart-bar-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.chart-bar { width: 100%; max-width: 60px; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 4px; transition: height 0.5s ease; }
+.chart-value { font-size: 0.75rem; color: var(--text-primary); margin-bottom: 4px; font-weight: 500; }
+.chart-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; text-align: center; }
+
+/* Filter bar */
+.filter-bar {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px;
+}
+.filter-bar input, .filter-bar select {
+  padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text-primary); font-size: 0.85rem; outline: none;
+}
+.filter-bar input:focus, .filter-bar select:focus { border-color: var(--accent); }
+.filter-bar input { flex: 1; min-width: 140px; }
+.filter-bar select { min-width: 120px; }
+
+/* Table */
+.data-table {
+  width: 100%; border-collapse: collapse;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); overflow: hidden;
+}
+.data-table th {
+  text-align: left; padding: 12px 16px;
+  background: var(--bg-tertiary); color: var(--text-secondary);
+  font-size: 0.8rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.data-table td {
+  padding: 10px 16px; border-top: 1px solid var(--border);
+  font-size: 0.88rem; color: var(--text-primary);
+}
+.data-table tr:hover td { background: var(--bg-tertiary); }
+.data-table .role-user { color: var(--text-secondary); }
+.data-table .role-assistant { color: var(--accent); }
+.data-table .content-cell { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Pagination */
+.pagination { display: flex; gap: 6px; justify-content: center; margin-top: 20px; }
+.page-btn {
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 0.85rem;
+  transition: var(--transition);
+}
+.page-btn:hover { border-color: var(--accent); color: var(--accent); }
+.page-btn.active { background: var(--accent); color: #0a0a10; border-color: var(--accent); }
+
+/* Forms */
+.form-section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 20px; }
+.form-section h3 { font-size: 1rem; font-weight: 500; margin-bottom: 16px; }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 6px; }
+.form-group input, .form-group textarea {
+  width: 100%; padding: 10px 14px; background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-primary); font-size: 0.9rem; outline: none; font-family: var(--font-mono);
+  transition: var(--transition);
+}
+.form-group input:focus, .form-group textarea:focus { border-color: var(--accent); }
+.form-group textarea { min-height: 60px; resize: vertical; }
+.form-group .hint { color: var(--text-muted); font-size: 0.8rem; margin-top: 4px; }
+
+/* Toggle switch */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; }
+.toggle-row .toggle-label { color: var(--text-primary); font-size: 0.95rem; }
+.toggle {
+  position: relative; width: 48px; height: 26px; flex-shrink: 0;
+}
+.toggle input { display: none; }
+.toggle .slider {
+  position: absolute; inset: 0; background: var(--bg-tertiary); border-radius: 26px;
+  cursor: pointer; transition: var(--transition); border: 1px solid var(--border);
+}
+.toggle .slider::before {
+  content: ""; position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; background: var(--text-secondary);
+  border-radius: 50%; transition: var(--transition);
+}
+.toggle input:checked + .slider { background: var(--accent); border-color: var(--accent); }
+.toggle input:checked + .slider::before { background: #0a0a10; transform: translateX(22px); }
+
+/* Badges */
+.badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+.badge-success { background: rgba(76,175,147,0.15); color: var(--success); }
+.badge-warning { background: rgba(196,155,76,0.15); color: var(--warning); }
+.badge-danger { background: rgba(196,77,77,0.15); color: var(--danger); }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  padding: 12px 24px; border-radius: var(--radius);
+  font-size: 0.9rem; z-index: 2000; animation: fadeIn 0.3s ease;
+  box-shadow: var(--shadow);
+}
+.toast-success { background: #1a3a2e; color: var(--success); border: 1px solid var(--success); }
+.toast-error { background: #3a1a1a; color: var(--danger); border: 1px solid var(--danger); }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Spinner */
+.spinner {
+  display: flex; align-items: center; justify-content: center; padding: 60px 0;
+}
+.spinner::after {
+  content: ""; width: 32px; height: 32px;
+  border: 3px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Settings key card */
+.key-list { display: grid; gap: 12px; }
+.key-card {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; background: var(--bg-tertiary); border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.key-card .key-name { font-size: 0.85rem; color: var(--text-secondary); }
+.key-card .key-value { font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-primary); }
+.key-status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }
+.key-status.ok { background: var(--success); }
+.key-status.missing { background: var(--danger); }
+
+.empty-state { text-align: center; padding: 40px 0; color: var(--text-muted); font-size: 0.9rem; }
+
+@media (max-width: 768px) {
+  .app-header { padding: 12px 16px; }
+  .tab-nav { padding: 8px 16px; }
+  .tab-content { padding: 16px; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .filter-bar { flex-direction: column; }
+  .data-table { font-size: 0.8rem; }
+  .data-table th, .data-table td { padding: 8px 10px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login-overlay" class="login-overlay">
+  <div class="login-card">
+    <h2>Family Bot <span class="gold">Admin</span></h2>
+    <p class="subtitle">请输入管理员密码以继续</p>
+    <input type="password" id="login-password" placeholder="管理员密码" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn btn-primary" onclick="doLogin()">登 录</button>
+    <p id="login-error" class="error-text"></p>
+  </div>
+</div>
+
+<!-- App shell -->
+<div id="app" style="display:none">
+  <header class="app-header">
+    <h1>Family Bot <span class="gold">Admin</span></h1>
+    <button class="btn btn-outline" onclick="doLogout()">退出登录</button>
+  </header>
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">仪表盘</button>
+    <button class="tab-btn" data-tab="conversations" onclick="switchTab('conversations')">对话记录</button>
+    <button class="tab-btn" data-tab="users" onclick="switchTab('users')">用户管理</button>
+    <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">系统设置</button>
+    <button class="tab-btn" data-tab="progress" onclick="switchTab('progress')">学习进度</button>
+  </nav>
+  <main class="tab-content" id="tab-content"><div class="spinner"></div></main>
+</div>
+
+<div id="toast" class="toast" style="display:none"></div>
+
+<script>
+const WEEKDAYS = ['日','一','二','三','四','五','六'];
+let authenticated = {{ authenticated | tojson }};
+let currentTab = 'dashboard';
+
+function init() {
+  if (authenticated) { showApp(); loadTab('dashboard'); }
+  else { document.getElementById('login-overlay').style.display = 'flex'; }
+}
+
+function showApp() {
+  document.getElementById('login-overlay').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+}
+
+async function doLogin() {
+  const pw = document.getElementById('login-password').value;
+  const err = document.getElementById('login-error');
+  err.textContent = '';
+  try {
+    const r = await fetch('/admin/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({password: pw}) });
+    const data = await r.json();
+    if (data.success) { showApp(); loadTab('dashboard'); }
+    else { err.textContent = data.error || '登录失败'; }
+  } catch(e) { err.textContent = '网络错误'; }
+}
+
+async function doLogout() {
+  await fetch('/admin/logout', { method: 'POST' });
+  authenticated = false;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-overlay').style.display = 'flex';
+  document.getElementById('login-password').value = '';
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  loadTab(tab);
+}
+
+async function loadTab(tab) {
+  const ct = document.getElementById('tab-content');
+  ct.innerHTML = '<div class="spinner"></div>';
+  try {
+    switch(tab) {
+      case 'dashboard': await renderDashboard(ct); break;
+      case 'conversations': await renderConversations(ct); break;
+      case 'users': await renderUsers(ct); break;
+      case 'settings': await renderSettings(ct); break;
+      case 'progress': await renderProgress(ct); break;
+    }
+  } catch(e) {
+    ct.innerHTML = '<div class="empty-state">加载失败: ' + e.message + '</div>';
+  }
+}
+
+// ========== Dashboard ==========
+async function renderDashboard(ct) {
+  const data = await apiGet('/admin/api/dashboard');
+  const errRate = data.total > 0 ? ((data.error_count / data.total) * 100).toFixed(1) : '0.0';
+  ct.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-card"><div class="label">今日消息</div><div class="value">${data.total}</div></div>
+      <div class="stat-card"><div class="label">活跃用户</div><div class="value">${data.active_users}</div></div>
+      <div class="stat-card"><div class="label">错误率</div><div class="value">${errRate}%</div></div>
+      <div class="stat-card"><div class="label">数据起始</div><div class="value" style="font-size:1.2rem">${data.first_date}</div></div>
+    </div>
+    ${data.trend && data.trend.length > 0 ? buildChart(data.trend) : ''}
+    <div class="chart-section"><h3>今日活跃用户</h3>
+      ${data.users && data.users.length > 0 ? data.users.map(u => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span>${escHtml(u.display_name || u.user_id)}</span><span style="color:var(--text-secondary)">${u.count} 条</span></div>`).join('') : '<div class="empty-state">暂无用户消息</div>'}
+    </div>`;
+}
+
+function buildChart(trend) {
+  const maxVal = Math.max(...trend.map(t => t.count), 1);
+  const bars = trend.map(t => {
+    const h = Math.max((t.count / maxVal) * 100, 4);
+    const d = new Date(t.date + 'T00:00:00');
+    const label = `${d.getMonth()+1}/${d.getDate()} ${WEEKDAYS[d.getDay()]}`;
+    return `<div class="chart-bar-item"><div class="chart-value">${t.count}</div><div class="chart-bar" style="height:${h}%"></div><div class="chart-label">${label}</div></div>`;
+  }).join('');
+  return `<div class="chart-section"><h3>近7日趋势</h3><div class="chart-bars">${bars}</div></div>`;
+}
+
+// ========== Conversations ==========
+let convPage = 1, convTotal = 0;
+async function renderConversations(ct) {
+  convPage = 1;
+  ct.innerHTML = `
+    <div class="filter-bar">
+      <input type="text" id="f-user" placeholder="用户 ID">
+      <input type="date" id="f-date-from" placeholder="起始日期">
+      <input type="date" id="f-date-to" placeholder="截止日期">
+      <input type="text" id="f-search" placeholder="搜索内容">
+      <button class="btn btn-primary btn-sm" onclick="loadConversations()">查询</button>
+    </div>
+    <div id="conv-table"></div>
+    <div id="conv-pager" class="pagination"></div>`;
+  loadConversations();
+}
+async function loadConversations(page = 1) {
+  convPage = page;
+  const params = new URLSearchParams();
+  const uid = document.getElementById('f-user')?.value || '';
+  const df = document.getElementById('f-date-from')?.value || '';
+  const dt = document.getElementById('f-date-to')?.value || '';
+  const s = document.getElementById('f-search')?.value || '';
+  if (uid) params.set('user_id', uid);
+  if (df) params.set('date_from', df);
+  if (dt) params.set('date_to', dt);
+  if (s) params.set('search', s);
+  params.set('page', page);
+  params.set('page_size', '20');
+  const data = await apiGet('/admin/api/conversations?' + params.toString());
+  convTotal = data.total;
+  const totalPages = Math.ceil(data.total / data.page_size) || 1;
+  document.getElementById('conv-table').innerHTML = buildConvTable(data.items);
+  document.getElementById('conv-pager').innerHTML = buildPagination(convPage, totalPages, loadConversations);
+}
+function buildConvTable(items) {
+  if (!items.length) return '<div class="empty-state">暂无对话记录</div>';
+  return `<table class="data-table"><thead><tr><th>ID</th><th>用户</th><th>角色</th><th>内容</th><th>时间</th></tr></thead><tbody>
+    ${items.map(r => `<tr>
+      <td style="color:var(--text-muted);font-size:0.8rem">${r.id}</td>
+      <td title="${escHtml(r.user_id||'')}">${escHtml(r.display_name || (r.user_id||'').substring(0,20))}</td>
+      <td class="role-${r.role}">${r.role === 'user' ? '用户' : r.role === 'assistant' ? 'AI' : '系统'}</td>
+      <td class="content-cell">${escHtml(r.content || '')}</td>
+      <td style="color:var(--text-muted);font-size:0.8rem;white-space:nowrap">${r.created_at || ''}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
+// ========== Users ==========
+async function renderUsers(ct) {
+  const data = await apiGet('/admin/api/users');
+  ct.innerHTML = `
+    <div class="form-section"><h3>管理员 (admin_users)</h3>
+      <div class="form-group">
+        <textarea id="u-admin">${data.admin_users.join(',')}</textarea>
+        <div class="hint">飞书 open_id，多个用英文逗号分隔</div>
+      </div></div>
+    <div class="form-section"><h3>孩子 (child_users)</h3>
+      <div class="form-group">
+        <textarea id="u-child">${data.child_users.join(',')}</textarea>
+      </div></div>
+    <div class="form-section"><h3>家教 (tutor_users)</h3>
+      <div class="form-group">
+        <textarea id="u-tutor">${data.tutor_users.join(',')}</textarea>
+      </div></div>
+    <button class="btn btn-primary" onclick="saveUsers()" style="width:auto">保存用户配置</button>`;
+}
+async function saveUsers() {
+  const body = {
+    admin_users: document.getElementById('u-admin').value,
+    child_users: document.getElementById('u-child').value,
+    tutor_users: document.getElementById('u-tutor').value,
+  };
+  await apiPost('/admin/api/users', body);
+  showToast('用户配置已保存', 'success');
+}
+
+// ========== Settings ==========
+async function renderSettings(ct) {
+  const data = await apiGet('/admin/api/settings');
+  const dsOk = data.deepseek_key.length > 8;
+  const kimiOk = data.kimi_key.length > 8;
+  ct.innerHTML = `
+    <div class="form-section"><h3>API 密钥状态</h3>
+      <div class="key-list">
+        <div class="key-card">
+          <span><span class="key-status ${dsOk?'ok':'missing'}"></span><span class="key-name">DeepSeek</span></span>
+          <span class="key-value">${data.deepseek_key}</span>
+        </div>
+        <div class="key-card">
+          <span><span class="key-status ${kimiOk?'ok':'missing'}"></span><span class="key-name">Kimi</span></span>
+          <span class="key-value">${data.kimi_key}</span>
+        </div>
+        <div class="key-card">
+          <span><span class="key-status ok"></span><span class="key-name">飞书 App ID</span></span>
+          <span class="key-value">${data.feishu_app_id}</span>
+        </div>
+      </div>
+    </div>
+    <div class="form-section">
+      <h3>日报设置</h3>
+      <div class="toggle-row">
+        <span class="toggle-label">每日定时推送</span>
+        <label class="toggle"><input type="checkbox" id="s-report" ${data.report_enabled?'checked':''}><span class="slider"></span></label>
+      </div>
+      <div class="form-group">
+        <label>推送时间</label>
+        <input type="time" id="s-time" value="${data.report_time}">
+        <div class="hint">修改后需重启服务生效</div>
+      </div>
+      <div style="padding:12px 0;color:var(--text-muted);font-size:0.85rem">
+        上下文轮数: ${data.context_rounds} | 服务端口: ${data.port}
+      </div>
+      <button class="btn btn-primary" onclick="saveSettings()" style="width:auto">保存设置</button>
+    </div>
+    <div class="form-section">
+      <h3>修改密码</h3>
+      <div class="form-group">
+        <label>当前密码</label>
+        <input type="password" id="cp-current" placeholder="输入当前密码">
+      </div>
+      <div class="form-group">
+        <label>新密码</label>
+        <input type="password" id="cp-new" placeholder="输入新密码（至少4位）">
+      </div>
+      <button class="btn btn-primary" onclick="changePassword()" style="width:auto">修改密码</button>
+    </div>`;
+}
+async function saveSettings() {
+  const body = {
+    report_enabled: document.getElementById('s-report').checked,
+    report_time: document.getElementById('s-time').value,
+  };
+  await apiPost('/admin/api/settings', body);
+  showToast('设置已保存', 'success');
+}
+async function changePassword() {
+  const current = document.getElementById('cp-current').value;
+  const neu = document.getElementById('cp-new').value;
+  if (!neu || neu.length < 4) { showToast('新密码至少4位', 'error'); return; }
+  const r = await apiPost('/admin/api/change-password', {current_password: current, new_password: neu});
+  if (r.success) { showToast('密码已修改，请重新登录', 'success'); setTimeout(doLogout, 1500); }
+}
+
+// ========== Progress ==========
+async function renderProgress(ct) {
+  const filters = await apiGet('/admin/api/progress/filters');
+  const childOpts = filters.children.map(c => `<option value="${c}">${c}</option>`).join('');
+  const subjOpts = filters.subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+  ct.innerHTML = `
+    <div class="filter-bar">
+      <select id="p-child"><option value="">全部孩子</option>${childOpts}</select>
+      <select id="p-subject"><option value="">全部科目</option>${subjOpts}</select>
+      <button class="btn btn-primary btn-sm" onclick="loadProgress()">查询</button>
+    </div>
+    <div id="progress-table"></div>`;
+  loadProgress();
+}
+async function loadProgress() {
+  const child = document.getElementById('p-child')?.value || '';
+  const subject = document.getElementById('p-subject')?.value || '';
+  const params = new URLSearchParams();
+  if (child) params.set('child_id', child);
+  if (subject) params.set('subject', subject);
+  const data = await apiGet('/admin/api/progress?' + params.toString());
+  document.getElementById('progress-table').innerHTML = buildProgressTable(data.items);
+}
+function buildProgressTable(items) {
+  if (!items.length) return '<div class="empty-state">暂无学习记录</div>';
+  const statusMap = { mastered: ['已掌握','success'], in_progress: ['进行中','warning'], not_started: ['未开始',''], needs_review: ['需复习','danger'] };
+  return `<table class="data-table"><thead><tr><th>孩子</th><th>科目</th><th>知识点</th><th>状态</th><th>备注</th><th>更新时间</th></tr></thead><tbody>
+    ${items.map(r => {
+      const [label, cls] = statusMap[r.status] || [r.status, ''];
+      return `<tr>
+        <td style="font-family:var(--font-mono);font-size:0.8rem">${escHtml(r.child_id||'').substring(0,20)}</td>
+        <td>${escHtml(r.subject||'')}</td>
+        <td>${escHtml(r.topic||'')}</td>
+        <td><span class="badge badge-${cls}">${label}</span></td>
+        <td style="color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.notes||'')}</td>
+        <td style="color:var(--text-muted);font-size:0.8rem;white-space:nowrap">${r.updated_at||''}</td>
+      </tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
+// ========== Helpers ==========
+function buildPagination(current, total, onClick) {
+  if (total <= 1) return '';
+  let html = '';
+  for (let i = 1; i <= total; i++) {
+    html += `<button class="page-btn ${i===current?'active':''}" onclick="event.preventDefault();(${onClick.name})(${i})">${i}</button>`;
+  }
+  return html;
+}
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s || '';
+  return div.innerHTML;
+}
+async function apiGet(url) {
+  const r = await fetch(url);
+  if (r.status === 401) { doLogout(); throw new Error('未登录'); }
+  if (!r.ok) throw new Error('请求失败: ' + r.status);
+  return r.json();
+}
+async function apiPost(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  if (r.status === 401) { doLogout(); throw new Error('未登录'); }
+  const data = await r.json();
+  if (!data.success) throw new Error(data.error || '操作失败');
+  return data;
+}
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast toast-' + type; t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3000);
+}
+
+init();
+</script>
+</body>
+</html>
