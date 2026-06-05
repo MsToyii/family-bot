@@ -16,6 +16,7 @@ from model_router import ModelRouter
 from storage.database import init_db
 from daily_report import send_report_to_admins, generate_report, is_report_enabled, set_report_enabled
 from admin_routes import router as admin_router
+import lark_cli
 
 logging.basicConfig(
     level=logging.INFO,
@@ -133,6 +134,61 @@ def _is_bot_mentioned(user_text: str) -> bool:
     return "@_user_1" in user_text or "@_all" in user_text or "@机器人" in user_text
 
 
+def _extract_doc_title(text: str) -> str | None:
+    """从自然语言中提取文档创建意图和标题"""
+    import re
+    # 精确指令优先匹配（由后续代码处理）
+    if text.startswith("创建文档 ") or text.startswith("写文档 "):
+        return None
+    # 自然语言模式
+    patterns = [
+        r"生成.*?文档[：:]*[《「『](.+?)[》」』']",
+        r"创建.*?文档[：:]*[《「『](.+?)[》」』']",
+        r"写.*?文档[：:]*[《「『](.+?)[》」』']",
+        r"输出.*?文档[：:]*[《「『](.+?)[》」』']",
+        r"生成.*?文档[：:]*\s*[#\d]+\.?\s*(.+)",
+        r"(?:生成|创建|写|帮我写|帮我创建|帮我生成).*?文档",
+        r"文档.*?(?:生成|创建|写|输出)",
+        r"一份.*?文档",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text)
+        if m:
+            if m.lastindex and m.group(1):
+                return m.group(1).strip()
+            # 有意图但没有明确标题 → 从消息中提取
+            title = re.sub(r"(?:请|帮我|能不能|可以|麻烦你?)(?:生成|创建|写|输出)(?:一个|一份|一篇)?(?:关于)?", "", text)
+            title = re.sub(r"文档.*$", "", title)
+            title = re.sub(r".*?(?:生成|创建|写|输出)", "", title)
+            title = title.strip().rstrip("，,。.")
+            if title and len(title) < 30:
+                return title
+            return "未命名文档"
+    return None
+
+
+def _extract_bitable_name(text: str) -> str | None:
+    """从自然语言中提取多维表格创建意图"""
+    import re
+    if text.startswith("创建多维表格 ") or text.startswith("创建表格 "):
+        return None
+    patterns = [
+        r"多维表格[，,]*[：:]*[《「『](.+?)[》」』']",
+        r"(?:建立|创建|生成|新建).*?多维表格",
+        r"多维表格.*?(?:建立|创建|生成|新建|做)",
+    ]
+    for pat in patterns:
+        if re.search(pat, text):
+            name = re.sub(r"(?:请|帮我|能不能|可以|麻烦你?)(?:建立|创建|生成|新建)(?:一个|一份)?", "", text)
+            name = re.sub(r"多维表格.*$", "", name)
+            name = re.sub(r".*?(?:建立|创建|多维表格)", "", name)
+            name = name.strip().rstrip("，,。.")
+            if name and len(name) < 30:
+                return name
+            return "未命名表格"
+    return None
+
+
 async def _process_message(event_data: dict):
     """后台异步处理消息"""
     try:
@@ -188,7 +244,29 @@ async def _process_message(event_data: dict):
                 reply = "⏸️ 每日定时推送已关闭。随时发送「日报」手动查询。"
                 admin_cmd = True
 
-        # 文档 / 多维表格创建（所有用户可用）
+        # 自然语言意图识别：创建文档
+        if not admin_cmd:
+            cmd = user_text.strip()
+            # 自然语言 → 提取标题创建文档
+            doc_title = _extract_doc_title(cmd)
+            if doc_title:
+                result = await lark_cli.create_doc(doc_title)
+                if result.get("ok"):
+                    reply = f"✅ 文档创建成功\n📄 [{doc_title}]({result['url']})"
+                else:
+                    reply = f"❌ 文档创建失败: {result.get('error', '未知错误')}"
+                admin_cmd = True
+            # 自然语言 → 提取名称创建多维表格
+            btable_name = _extract_bitable_name(cmd)
+            if not admin_cmd and btable_name:
+                result = await lark_cli.create_bitable(btable_name)
+                if result.get("ok"):
+                    reply = f"✅ 多维表格创建成功\n📊 [{btable_name}]({result['url']})"
+                else:
+                    reply = f"❌ 多维表格创建失败: {result.get('error', '未知错误')}"
+                admin_cmd = True
+
+        # 精确指令（所有用户可用）
         if not admin_cmd:
             cmd = user_text.strip()
             if cmd == "我的ID":
@@ -197,22 +275,22 @@ async def _process_message(event_data: dict):
             elif cmd.startswith("创建文档 "):
                 title = cmd[5:].strip()
                 if title:
-                    result = await handler.create_doc(title)
-                    if result:
+                    result = await lark_cli.create_doc(title)
+                    if result.get("ok"):
                         reply = f"✅ 文档创建成功\n📄 [{title}]({result['url']})"
                     else:
-                        reply = "❌ 文档创建失败，请检查应用权限。\n\n飞书开放平台 → 应用 → 权限管理 → 确认「云文档」权限已开启。"
+                        reply = f"❌ 文档创建失败: {result.get('error', '未知错误')}"
                 else:
                     reply = "用法: 创建文档 <标题>"
                 admin_cmd = True
             elif cmd.startswith("创建多维表格 "):
                 name = cmd[6:].strip()
                 if name:
-                    result = await handler.create_bitable(name)
-                    if result:
+                    result = await lark_cli.create_bitable(name)
+                    if result.get("ok"):
                         reply = f"✅ 多维表格创建成功\n📊 [{name}]({result['url']})"
                     else:
-                        reply = "❌ 多维表格创建失败，请检查应用权限。\n\n飞书开放平台 → 应用 → 权限管理 → 确认「多维表格」权限已开启。"
+                        reply = f"❌ 多维表格创建失败: {result.get('error', '未知错误')}"
                 else:
                     reply = "用法: 创建多维表格 <名称>"
                 admin_cmd = True

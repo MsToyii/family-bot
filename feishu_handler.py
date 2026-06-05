@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 class FeishuHandler:
     def __init__(self):
         self._tenant_token: str | None = None
+        self._token_expires_at: float = 0
 
     # ========== 身份识别 ==========
 
@@ -116,8 +117,10 @@ class FeishuHandler:
             return None
 
     async def _get_tenant_token(self) -> str | None:
-        """获取飞书 tenant access token"""
-        if self._tenant_token:
+        """获取飞书 tenant access token，自动刷新过期 token"""
+        import time
+        # 提前 5 分钟刷新，避免临界过期
+        if self._tenant_token and time.time() < self._token_expires_at - 300:
             return self._tenant_token
 
         body = {
@@ -130,9 +133,11 @@ class FeishuHandler:
                     "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
                     json=body,
                 )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    self._tenant_token = data.get("tenant_access_token", "")
+                data = resp.json()
+                if resp.status_code == 200 and data.get("code", -1) == 0:
+                    self._tenant_token = data["tenant_access_token"]
+                    self._token_expires_at = time.time() + data.get("expire", 7200)
+                    logger.info("tenant_access_token 已刷新")
                     return self._tenant_token
                 logger.error(f"获取 token 失败: {resp.text}")
                 return None
