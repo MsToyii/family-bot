@@ -72,49 +72,78 @@ class FeishuHandler:
         return {"image_key": image_key.strip('"') if image_key else ""}
 
     def _parse_post(self, msg: dict) -> dict:
-        """富文本消息：提取纯文本"""
+        """富文本消息：提取纯文本 + 图片"""
         text_parts = []
+        image_key = ""
         try:
             import json
             data = json.loads(msg.get("content", "{}"))
             for block in data.get("content", [[]]):
                 for elem in block:
-                    if elem.get("tag") == "text":
+                    tag = elem.get("tag", "")
+                    if tag == "text":
                         text_parts.append(elem.get("text", ""))
+                    elif tag == "img" and not image_key:
+                        image_key = elem.get("image_key", "")
         except Exception:
             pass
-        return {"text": "".join(text_parts)}
+        result: dict[str, str] = {"text": "".join(text_parts)}
+        if image_key:
+            result["image_key"] = image_key
+        return result
 
     # ========== 图片下载 ==========
 
+    @staticmethod
+    def _is_valid_image(data: bytes) -> bool:
+        """检查二进制数据是否为有效的图片（检查文件头）"""
+        if len(data) < 12:
+            return False
+        valid_headers = [
+            b'\xff\xd8\xff',           # JPEG
+            b'\x89PNG\r\n\x1a\n',      # PNG
+            b'GIF87a',                  # GIF
+            b'GIF89a',                  # GIF
+            b'RIFF',                    # WEBP
+            b'BM',                      # BMP
+        ]
+        return any(data.startswith(h) for h in valid_headers)
+
     async def download_image(self, image_key: str, message_id: str = "") -> bytes | None:
-        """根据 image_key 下载图片，返回二进制数据"""
+        """根据 image_key 下载图片，返回二进制数据（自动重试）"""
         token = await self._get_tenant_token()
         if not token:
             logger.error("无法获取飞书 tenant token")
             return None
 
         headers = {"Authorization": f"Bearer {token}"}
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                # 优先使用消息资源接口
-                if message_id:
-                    url = f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/resources/{image_key}?type=image"
+
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    # 优先使用消息资源接口
+                    if message_id:
+                        url = f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/resources/{image_key}?type=image"
+                        resp = await client.get(url, headers=headers)
+                        if resp.status_code == 200 and self._is_valid_image(resp.content):
+                            return resp.content
+                        if resp.status_code == 200:
+                            logger.warning(f"资源接口返回无效图片数据 (attempt {attempt + 1})")
+
+                    # 回退：图片下载接口
+                    url = f"https://open.feishu.cn/open-apis/im/v1/images/{image_key}"
                     resp = await client.get(url, headers=headers)
                     if resp.status_code == 200:
-                        return resp.content
-                    logger.warning(f"资源接口失败: {resp.status_code}，尝试图片接口")
+                        if self._is_valid_image(resp.content):
+                            return resp.content
+                        logger.warning(f"图片接口返回无效图片数据 (attempt {attempt + 1})")
+                    else:
+                        logger.warning(f"下载图片失败 (attempt {attempt + 1}): {resp.status_code}")
+            except Exception as e:
+                logger.warning(f"下载图片异常 (attempt {attempt + 1}): {e}")
 
-                # 回退：图片下载接口
-                url = f"https://open.feishu.cn/open-apis/im/v1/images/{image_key}"
-                resp = await client.get(url, headers=headers)
-                if resp.status_code == 200:
-                    return resp.content
-                logger.error(f"下载图片失败: {resp.status_code} {resp.text}")
-                return None
-        except Exception as e:
-            logger.error(f"下载图片异常: {e}")
-            return None
+        logger.error(f"图片下载最终失败: {image_key}")
+        return None
 
     async def _get_tenant_token(self) -> str | None:
         """获取飞书 tenant access token，自动刷新过期 token"""

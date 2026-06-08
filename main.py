@@ -30,9 +30,17 @@ router = ModelRouter()
 # 待处理图片缓存: {sender_id: {"image_key": str, "message_id": str}}
 _pending_images: dict[str, dict[str, str]] = {}
 
-# 消息去重: {message_id: timestamp}，5 分钟内不重复处理
+# 消息去重: {message_id: timestamp}，300 秒内不重复处理
 _seen_messages: dict[str, float] = {}
-_MESSAGE_DEDUP_TTL = 300  # 秒
+_MESSAGE_DEDUP_TTL = 300
+
+# 群聊 @mention 追踪: {"chat_id:sender_id": timestamp}，60 秒窗口
+# 用于放行 @mention 之后发送的纯图片消息
+_recent_mentions: dict[str, float] = {}
+_RECENT_MENTION_TTL = 60
+
+# 并发保护锁
+_message_lock = asyncio.Lock()
 
 
 _report_task: asyncio.Task | None = None
@@ -203,17 +211,19 @@ async def _process_message(event_data: dict):
             logger.info(f"跳过系统事件（sender 为空）: chat={chat_id}, msg_id={message_id}")
             return
 
-        # 防护 2: 消息去重（5 分钟内同一 message_id 不重复处理）
+        # 防护 2: 消息去重（300 秒内同一 message_id 不重复处理）
         now = time.time()
         if message_id:
-            # 清理过期的去重记录
-            expired = [mid for mid, ts in _seen_messages.items() if now - ts > _MESSAGE_DEDUP_TTL]
-            for mid in expired:
-                del _seen_messages[mid]
-            if message_id in _seen_messages:
-                logger.info(f"跳过重复消息: msg_id={message_id}")
-                return
-            _seen_messages[message_id] = now
+            async with _message_lock:
+                # 清理过期的去重记录（仅当记录数超过阈值时触发）
+                if len(_seen_messages) > 100:
+                    expired = [mid for mid, ts in _seen_messages.items() if now - ts > _MESSAGE_DEDUP_TTL]
+                    for mid in expired:
+                        del _seen_messages[mid]
+                if message_id in _seen_messages:
+                    logger.info(f"跳过重复消息: msg_id={message_id}")
+                    return
+                _seen_messages[message_id] = now
 
         parsed = handler.parse_message(event_data)
         logger.info(f"收到消息: sender={sender_id}, chat={chat_id}, type={parsed['msg_type']}")
@@ -223,10 +233,32 @@ async def _process_message(event_data: dict):
         reply = ""
         admin_cmd = False
 
-        # 防护 3: 群聊中只响应 @提及，P2P 私聊正常回复
-        if _is_group_chat(event_data) and not _is_bot_mentioned(user_text):
-            logger.info(f"群聊消息未 @机器人，跳过: chat={chat_id}")
-            return
+        msg_type = parsed["msg_type"]
+
+        # 防护 3: 群聊中只响应 @提及
+        if _is_group_chat(event_data):
+            is_mentioned = _is_bot_mentioned(user_text)
+            if is_mentioned:
+                # 记录最近 @了机器人的用户（60 秒窗口）
+                async with _message_lock:
+                    _recent_mentions[f"{chat_id}:{sender_id}"] = time.time()
+                    # 定期清理过期记录
+                    if len(_recent_mentions) > 50:
+                        cutoff = time.time() - _RECENT_MENTION_TTL
+                        expired = [k for k, ts in _recent_mentions.items() if ts < cutoff]
+                        for k in expired:
+                            del _recent_mentions[k]
+            elif image_key:
+                # 图片/富文本图片消息 → 检查是否近期 @过机器人
+                async with _message_lock:
+                    last_mention = _recent_mentions.get(f"{chat_id}:{sender_id}", 0)
+                if time.time() - last_mention > _RECENT_MENTION_TTL:
+                    logger.info(f"群聊图片消息，发送者 {sender_id} 未在窗口期内 @机器人，跳过")
+                    return
+                logger.info(f"群聊图片消息，发送者 {sender_id} 近期 @过机器人，放行")
+            else:
+                logger.info(f"群聊消息未 @机器人，跳过: chat={chat_id}")
+                return
 
         # 管理员指令
         if sender_id in config.admin_users:
@@ -296,18 +328,10 @@ async def _process_message(event_data: dict):
                 admin_cmd = True
 
         if not admin_cmd:
-            # 图片消息：缓存图片 key，询问用户如何处理
-            if image_key and not user_text:
-                message_id = event_data.get("event", {}).get("message", {}).get("message_id", "")
-                _pending_images[sender_id] = {"image_key": image_key, "message_id": message_id}
-                logger.info(f"缓存待处理图片: sender={sender_id}, image_key={image_key}")
-                reply = "收到图片，请问需要我如何处理？\n例如：\n- 「识别这张图片」— 描述图片内容\n- 「提取文字」— OCR 文字识别\n- 「分析题目」— 识别并解答题目"
-
-            # 文字消息 + 有缓存图片 → 按用户指令处理图片
-            elif user_text and sender_id in _pending_images:
-                pending = _pending_images.pop(sender_id)
-                logger.info(f"处理缓存图片: {pending['image_key']}, 指令: {user_text}")
-                img_data = await handler.download_image(pending["image_key"], pending["message_id"])
+            # 图文混合消息（富文本 post 同时携带 text + image_key）→ 直接走视觉模型
+            if image_key and user_text and msg_type == "post":
+                logger.info(f"图文混合消息，直接处理: {user_text[:60]}")
+                img_data = await handler.download_image(image_key, message_id)
                 if img_data:
                     reply = await router.route(
                         sender_id=sender_id,
@@ -317,6 +341,33 @@ async def _process_message(event_data: dict):
                     )
                 else:
                     reply = "抱歉，图片下载失败，请重新发送。"
+
+            # 纯图片消息：缓存图片 key，询问用户如何处理
+            elif image_key and not user_text:
+                async with _message_lock:
+                    _pending_images[sender_id] = {"image_key": image_key, "message_id": message_id}
+                logger.info(f"缓存待处理图片: sender={sender_id}, image_key={image_key}")
+                reply = "收到图片，请问需要我如何处理？\n例如：\n- 「识别这张图片」— 描述图片内容\n- 「提取文字」— OCR 文字识别\n- 「分析题目」— 识别并解答题目"
+
+            # 文字消息 + 有缓存图片 → 按用户指令处理图片
+            elif user_text and sender_id in _pending_images:
+                async with _message_lock:
+                    pending = _pending_images.pop(sender_id, None)
+                if not pending:
+                    logger.info(f"缓存图片已被其他任务取走: sender={sender_id}")
+                    reply = await router.route(sender_id=sender_id, user_message=user_text)
+                else:
+                    logger.info(f"处理缓存图片: {pending['image_key']}, 指令: {user_text}")
+                    img_data = await handler.download_image(pending["image_key"], pending["message_id"])
+                    if img_data:
+                        reply = await router.route(
+                            sender_id=sender_id,
+                            user_message=user_text,
+                            images=[img_data],
+                            needs_visual=True,
+                        )
+                    else:
+                        reply = "抱歉，图片下载失败，请重新发送。"
 
             # 纯文字消息 → 正常 AI 对话
             elif user_text:
