@@ -42,7 +42,7 @@ class ModelRouter:
         if sender_id in config.admin_users:
             return "family"
         elif sender_id in config.child_users:
-            return "tutor"
+            return "socratic"
         elif sender_id in config.tutor_users:
             return "teacher"
         return "family"
@@ -78,6 +78,14 @@ class ModelRouter:
 
         if not reply:
             reply = FALLBACK_MSG
+
+        # 解析积分标记并存入数据库
+        if reply:
+            score_list, clean_reply = storage.parse_score_tags(reply)
+            if score_list:
+                for sc in score_list:
+                    await storage.add_score(sender_id, sc["points"], role, sc["reason"])
+                reply = clean_reply
 
         # 保存 AI 回复，清理旧记录
         if reply:

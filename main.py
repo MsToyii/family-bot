@@ -312,6 +312,33 @@ async def _process_message(event_data: dict):
             if cmd == "我的ID":
                 reply = f"你的 Open ID: `{sender_id}`"
                 admin_cmd = True
+            elif cmd in ("积分", "我的积分", "分数"):
+                total = await storage.get_total_score(sender_id)
+                today = await storage.get_today_score(sender_id)
+                alias = config.user_aliases.get(sender_id, sender_id[:12])
+                recent = await storage.get_recent_scores(sender_id, 3)
+                lines = [f"🏆 **{alias} 的积分**", f"━━━━━━━━━━━━━━━━", "", f"💰 总分: **{total}** 分"]
+                if today:
+                    lines.append(f"📅 今日: +{today} 分")
+                if recent:
+                    lines.append("")
+                    lines.append("📋 最近记录:")
+                    for r in recent:
+                        lines.append(f"  • {r['reason']}: +{r['points']}分")
+                reply = "\n".join(lines)
+                admin_cmd = True
+            elif cmd == "排行榜":
+                board = await storage.get_leaderboard(5)
+                lines = ["🏆 **学习积分排行榜**", "━━━━━━━━━━━━━━━━"]
+                if board:
+                    for i, b in enumerate(board, 1):
+                        name = config.user_aliases.get(b["user_id"], b["user_id"][:12])
+                        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
+                        lines.append(f"{medal} {name}: **{b['total']}** 分")
+                else:
+                    lines.append("暂无数据")
+                reply = "\n".join(lines)
+                admin_cmd = True
             elif cmd.startswith("创建文档 "):
                 title = cmd[5:].strip()
                 if title:

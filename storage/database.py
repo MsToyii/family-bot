@@ -47,6 +47,19 @@ async def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_lp_child
                 ON learning_progress(child_id, subject);
+
+            CREATE TABLE IF NOT EXISTS scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                subject TEXT NOT NULL DEFAULT 'general',
+                points INTEGER NOT NULL DEFAULT 0,
+                reason TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_scores_user
+                ON scores(user_id);
+            CREATE INDEX IF NOT EXISTS idx_scores_created
+                ON scores(user_id, created_at);
         """)
         await db.commit()
 
