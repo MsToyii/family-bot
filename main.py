@@ -126,6 +126,8 @@ async def callback(request: Request, background_tasks: BackgroundTasks):
 
     if event_type == "im.message.receive_v1":
         background_tasks.add_task(_process_message, event_data)
+    elif event_type == "card.action.trigger":
+        background_tasks.add_task(_process_card_action, event_data)
 
     return JSONResponse({"code": 0})
 
@@ -348,12 +350,14 @@ async def _process_message(event_data: dict):
                 else:
                     reply = "抱歉，图片下载失败，请重新发送。"
 
-            # 纯图片消息：缓存图片 key，询问用户如何处理
+            # 纯图片消息：缓存图片 key，发送操作选择卡片
             elif image_key and not user_text:
                 async with _message_lock:
                     _pending_images[sender_id] = {"image_key": image_key, "message_id": message_id}
                 logger.info(f"缓存待处理图片: sender={sender_id}, image_key={image_key}")
-                reply = "收到图片，请问需要我如何处理？\n例如：\n- 「识别这张图片」— 描述图片内容\n- 「提取文字」— OCR 文字识别\n- 「分析题目」— 识别并解答题目"
+                card = handler.image_action_card(image_key, message_id)
+                await handler.send_card(chat_id, card)
+                logger.info(f"图片操作卡片已发送: sender={sender_id}")
 
             # 文字消息 + 有缓存图片 → 按用户指令处理图片
             elif user_text and sender_id in _pending_images:
@@ -389,6 +393,78 @@ async def _process_message(event_data: dict):
 
     except Exception as e:
         logger.error(f"处理消息异常: {e}", exc_info=True)
+
+
+# ========== 卡片交互 ==========
+
+# 按钮操作 → AI 指令映射
+_CARD_ACTION_PROMPTS = {
+    "describe": "描述这张图片的内容，用中文详细说明。",
+    "ocr": "提取图片中的文字，按原格式输出。如果有手写文字请特别注意识别准确。",
+    "solve": "请解答图中的题目，给出详细的解题步骤和最终答案。",
+    "guide": (
+        "图片中有一道题目或问题。\n"
+        "你的角色是启发式教学，目的是培养独立思考能力。\n"
+        "请遵循以下原则：\n"
+        "1. 不要直接给出答案\n"
+        "2. 通过提问引导对方思考解题方向\n"
+        "3. 给出步骤提示但不完成关键推理\n"
+        "4. 鼓励对方尝试，肯定努力\n"
+        "5. 如果对方已有思路，顺着他们的思路引导"
+    ),
+}
+
+
+async def _process_card_action(event_data: dict):
+    """处理卡片按钮点击回调"""
+    try:
+        event = event_data.get("event", {})
+        action = event.get("action", {})
+        value = action.get("value", {})
+        action_type = value.get("action", "")
+        image_key = value.get("image_key", "")
+        message_id = value.get("message_id", "")
+        open_id = event.get("open_id", "")
+        open_chat_id = event.get("open_chat_id", "")
+
+        if not action_type or not open_id:
+            logger.warning(f"无效卡片回调: {json.dumps(event_data, ensure_ascii=False)[:300]}")
+            return
+
+        logger.info(f"卡片操作: {action_type}, user={open_id}")
+
+        # 取消 → 清理缓存
+        if action_type == "cancel":
+            async with _message_lock:
+                _pending_images.pop(open_id, None)
+            await handler.send_message(open_chat_id, "已取消操作。")
+            return
+
+        # 其他操作 → 下载图片 + AI 处理
+        prompt = _CARD_ACTION_PROMPTS.get(action_type)
+        if not prompt or not image_key:
+            return
+
+        async with _message_lock:
+            _pending_images.pop(open_id, None)
+
+        img_data = await handler.download_image(image_key, message_id)
+        if not img_data:
+            await handler.send_message(open_chat_id, "抱歉，图片已过期或无法下载，请重新发送图片。")
+            return
+
+        reply = await router.route(
+            sender_id=open_id,
+            user_message=prompt,
+            images=[img_data],
+            needs_visual=True,
+        )
+
+        if reply:
+            await handler.send_message(open_chat_id, reply)
+
+    except Exception as e:
+        logger.error(f"处理卡片回调异常: {e}", exc_info=True)
 
 
 if __name__ == "__main__":

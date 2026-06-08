@@ -1,5 +1,6 @@
-"""飞书事件处理：消息解析、图片下载、身份识别"""
+"""飞书事件处理：消息解析、图片下载、身份识别、卡片消息"""
 import hashlib
+import json
 import logging
 from typing import Any
 
@@ -220,6 +221,91 @@ class FeishuHandler:
                 return None
         except Exception as e:
             logger.error(f"发送消息异常: {e}")
+            return None
+
+    # ========== 交互卡片 ==========
+
+    @staticmethod
+    def image_action_card(image_key: str, message_id: str) -> dict:
+        """图片处理操作选择卡片"""
+        return {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": "📷 收到一张图片"},
+                "template": "blue",
+            },
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": "请选择要如何处理这张图片？",
+                    },
+                },
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "描述图片"},
+                            "value": {"action": "describe", "image_key": image_key, "message_id": message_id},
+                            "type": "default",
+                        },
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "OCR识别"},
+                            "value": {"action": "ocr", "image_key": image_key, "message_id": message_id},
+                            "type": "default",
+                        },
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "解题"},
+                            "value": {"action": "solve", "image_key": image_key, "message_id": message_id},
+                            "type": "default",
+                        },
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "思维引导"},
+                            "value": {"action": "guide", "image_key": image_key, "message_id": message_id},
+                            "type": "primary",
+                        },
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "取消"},
+                            "value": {"action": "cancel", "image_key": image_key, "message_id": message_id},
+                            "type": "danger",
+                        },
+                    ],
+                },
+            ],
+        }
+
+    async def send_card(self, receive_id: str, card: dict, msg_type: str = "chat_id") -> dict | None:
+        """发送交互卡片消息"""
+        token = await self._get_tenant_token()
+        if not token:
+            return None
+
+        url = "https://open.feishu.cn/open-apis/im/v1/messages"
+        params = {"receive_id_type": msg_type}
+        body = {
+            "receive_id": receive_id,
+            "msg_type": "interactive",
+            "content": json.dumps(card, ensure_ascii=False),
+        }
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(url, params=params, json=body, headers=headers)
+                if resp.status_code == 200:
+                    return resp.json()
+                logger.error(f"发送卡片失败: {resp.status_code} {resp.text}")
+                return None
+        except Exception as e:
+            logger.error(f"发送卡片异常: {e}")
             return None
 
     # ========== 文档 & 多维表格 ==========
