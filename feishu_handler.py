@@ -83,6 +83,8 @@ class FeishuHandler:
                     tag = elem.get("tag", "")
                     if tag == "text":
                         text_parts.append(elem.get("text", ""))
+                    elif tag == "at":
+                        text_parts.append(elem.get("user_id", ""))
                     elif tag == "img" and not image_key:
                         image_key = elem.get("image_key", "")
         except Exception:

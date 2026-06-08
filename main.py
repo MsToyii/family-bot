@@ -2,6 +2,7 @@
 import logging
 import json
 import asyncio
+import re
 import time
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
@@ -259,6 +260,11 @@ async def _process_message(event_data: dict):
             else:
                 logger.info(f"群聊消息未 @机器人，跳过: chat={chat_id}")
                 return
+
+        # 纯 @提及（不含实际内容），清空后走图片消息路径
+        _clean_text = re.sub(r"@_user_1|@_all|@机器人", "", user_text).strip()
+        if not _clean_text:
+            user_text = ""
 
         # 管理员指令
         if sender_id in config.admin_users:
