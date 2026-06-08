@@ -424,8 +424,8 @@ async def _process_card_action(event_data: dict):
         action_type = value.get("action", "")
         image_key = value.get("image_key", "")
         message_id = value.get("message_id", "")
-        open_id = event.get("open_id", "")
-        open_chat_id = event.get("open_chat_id", "")
+        open_id = event.get("operator", {}).get("open_id", "")
+        card_chat_id = event.get("open_chat_id", "") or open_id
 
         if not action_type or not open_id:
             logger.warning(f"无效卡片回调: {json.dumps(event_data, ensure_ascii=False)[:300]}")
@@ -437,7 +437,7 @@ async def _process_card_action(event_data: dict):
         if action_type == "cancel":
             async with _message_lock:
                 _pending_images.pop(open_id, None)
-            await handler.send_message(open_chat_id, "已取消操作。")
+            await handler.send_message(card_chat_id, "已取消操作。")
             return
 
         # 其他操作 → 下载图片 + AI 处理
@@ -450,7 +450,7 @@ async def _process_card_action(event_data: dict):
 
         img_data = await handler.download_image(image_key, message_id)
         if not img_data:
-            await handler.send_message(open_chat_id, "抱歉，图片已过期或无法下载，请重新发送图片。")
+            await handler.send_message(card_chat_id, "抱歉，图片已过期或无法下载，请重新发送图片。")
             return
 
         reply = await router.route(
@@ -461,7 +461,11 @@ async def _process_card_action(event_data: dict):
         )
 
         if reply:
-            await handler.send_message(open_chat_id, reply)
+            # 卡片回调无 open_chat_id 时，用 open_id 发私信
+            if not event.get("open_chat_id"):
+                await handler.send_message(open_id, reply, msg_type="open_id")
+            else:
+                await handler.send_message(card_chat_id, reply)
 
     except Exception as e:
         logger.error(f"处理卡片回调异常: {e}", exc_info=True)
