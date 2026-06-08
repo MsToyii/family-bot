@@ -15,6 +15,7 @@ from config import config
 from feishu_handler import FeishuHandler
 from model_router import ModelRouter
 from storage.database import init_db
+from storage import models as storage
 from daily_report import send_report_to_admins, generate_report, is_report_enabled, set_report_enabled
 from admin_routes import router as admin_router
 import lark_cli
