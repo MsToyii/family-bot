@@ -1,11 +1,21 @@
+# --- 环境变量 & 密钥 ---
 .env
+*.pem
+*.key
+*.cert
+ssh*
+credentials*
+secret*
+
+# --- Python ---
 __pycache__/
 *.pyc
 *.pyo
-*.db
-*.sqlite3
 .venv/
 venv/
+
+# --- 数据 & 日志 ---
+*.db
+*.sqlite3
 data/
 *.log
-ssh*
