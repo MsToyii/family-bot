@@ -41,7 +41,7 @@ def _display_name(user_id: str) -> str:
     """open_id → 显示别名"""
     return config.user_aliases.get(user_id, user_id)
 
-SECRET_KEY = os.getenv("ADMIN_PASSWORD", "family-bot-default")
+SECRET_KEY = os.getenv("ADMIN_PASSWORD", "")
 serializer = URLSafeTimedSerializer(SECRET_KEY, salt="admin-session")
 SESSION_MAX_AGE = 86400
 
